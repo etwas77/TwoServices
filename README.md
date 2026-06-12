@@ -4,5 +4,6 @@ this project will implement a simple microservice architecture, with 2 services 
     - customer object has "isActive" field, which can be validated/set via second service
 - service A:
     - offers REST API, that takes customerId as anput and validates/sets customer via backend service.
+- both services have swagger modules.
 
 under development, look into develop branch

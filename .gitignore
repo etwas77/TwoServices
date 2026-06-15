@@ -6,3 +6,4 @@ TestResults/
 *.suo
 *.userosscache
 *.sln.docstates
+.github/

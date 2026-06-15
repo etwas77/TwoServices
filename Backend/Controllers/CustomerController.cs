@@ -2,6 +2,8 @@
 using Backend.Repositories;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
+using Contracts.DTO;
+using AutoMapper;
 
 
 namespace Backend.Controllers
@@ -12,31 +14,34 @@ namespace Backend.Controllers
     {
         private readonly CustomerRepository _repository;
         private readonly ILogger<CustomerController> _logger;
+        private readonly IMapper _mapper;
 
-        public CustomerController(CustomerRepository repository, ILogger<CustomerController> logger)
+        public CustomerController(CustomerRepository repository, ILogger<CustomerController> logger, IMapper mapper)
         {
             _repository = repository;
             _logger = logger;
+            _mapper = mapper;
         }
 
         [HttpPost]
-        public async Task<ActionResult> Post(Customer customer)
+        public async Task<ActionResult> Post(CustomerDto customerDto)
         {
-            await _repository.CreateAsync(customer);
-            _logger.LogInformation("Created a new customer with ID: {CustomerId}", customer.Id);
-            return CreatedAtAction(nameof(Get), new { id = customer.Id }, customer);
+            var customerEntity = _mapper.Map<Customer>(customerDto);
+            await _repository.CreateAsync(customerEntity);
+            _logger.LogInformation("Created a new customer with ID: {CustomerId}", customerEntity.Id);
+            return CreatedAtAction(nameof(Get), new { id = customerEntity.Id }, customerDto);
         }
 
         [HttpPut("{id}")]
-        public async Task<ActionResult> Put(string id, Customer customer)
+        public async Task<ActionResult> Put(string id, CustomerDto customerDto)
         {
-            if(string.IsNullOrEmpty(id) || customer == null)
+            if(string.IsNullOrEmpty(id) || customerDto  == null)
             {
                 return BadRequest();
             }
 
             // Check if IDs match (if customer.Id is provided)
-            if (!string.IsNullOrWhiteSpace(customer.Id) && customer.Id != id)
+            if (!string.IsNullOrWhiteSpace(customerDto.Id) && customerDto.Id != id)
             {
                 return BadRequest(new { error = "Customer ID in URL does not match ID in body" });
             }           
@@ -46,19 +51,21 @@ namespace Backend.Controllers
             {
                 return NotFound();
             }
-            customer.Id = id; // Ensure the ID is set correctly
-            await _repository.UpdateAsync(id, customer);
+            var customerEntity = _mapper.Map<Customer>(customerDto);
+            customerEntity.Id = id; // Ensure the ID is set correctly
+            await _repository.UpdateAsync(id, customerEntity);
             return NoContent();
         }
 
         // GET: api/<CustomerController>
         [HttpGet]
-        public async Task<ActionResult<List<Customer>>> Get()
+        public async Task<ActionResult<List<CustomerDto>>> Get()
         {
             try
             {
                 var customers = await _repository.GetAllAsync();
-                return Ok(customers);
+                var customersDto = _mapper.Map<List<CustomerDto>>(customers);
+                return Ok(customersDto);
             }
             catch (MongoException ex) 
             {
@@ -73,14 +80,15 @@ namespace Backend.Controllers
         }
 
         [HttpGet("{id}")]
-        public async Task<ActionResult<Customer>> Get(string id)
+        public async Task<ActionResult<CustomerDto>> Get(string id)
         {
             var customer = await _repository.GetByIdAsync(id);
             if (customer == null)
             {
                 return NotFound();
             }
-            return Ok(customer);
+            var customerDto = _mapper.Map<CustomerDto>(customer);
+            return Ok(customerDto);
         }
 
         [HttpDelete]

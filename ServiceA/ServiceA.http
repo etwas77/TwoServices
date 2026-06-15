@@ -1,6 +1,10 @@
 @ServiceA_HostAddress = http://localhost:5234
 
-GET {{ServiceA_HostAddress}}/weatherforecast/
-Accept: application/json
+# Customer API (proxying to Backend)
+
+# Update a customer
+PUT {{ServiceA_HostAddress}}/api/customer/561a4aa6-342d-4523-b64f-966c927b9b16?active=false
+Content-Type: application/json
+
 
 ###

@@ -1,4 +1,5 @@
 using Backend;
+using Backend.Mappings;
 using Backend.Policies;
 using Backend.Repositories;
 using Backend.Services;
@@ -41,6 +42,12 @@ builder.Services.AddSingleton<MongoDbResiliencePolicy>();
 builder.Services.AddScoped<CustomerRepository>();
 builder.Services.AddSingleton<MongoDbStartupValidator>();
 // mongodb section end
+
+// Add this line with other services
+builder.Services.AddAutoMapper(config =>
+{
+    config.AddProfile<MappingProfile>();
+});
 
 
 var app = builder.Build();

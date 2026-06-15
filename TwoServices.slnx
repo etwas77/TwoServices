@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="Backend/Backend.csproj" Id="d24ebd0c-35ab-483c-83b3-c751f3734936" />
+  <Project Path="Contracts/Contracts.csproj" Id="5f0d2fa0-bc51-42a6-92bc-9fe485a57871" />
   <Project Path="ServiceA/ServiceA.csproj" Id="13696b64-bab6-4547-9413-c72d9b4aaff5" />
 </Solution>

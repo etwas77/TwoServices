@@ -30,6 +30,17 @@ namespace Backend.Controllers
         [HttpPut("{id}")]
         public async Task<ActionResult> Put(string id, Customer customer)
         {
+            if(string.IsNullOrEmpty(id) || customer == null)
+            {
+                return BadRequest();
+            }
+
+            // Check if IDs match (if customer.Id is provided)
+            if (!string.IsNullOrWhiteSpace(customer.Id) && customer.Id != id)
+            {
+                return BadRequest(new { error = "Customer ID in URL does not match ID in body" });
+            }           
+
             var existingCustomer = await _repository.GetByIdAsync(id);
             if (existingCustomer == null)
             {

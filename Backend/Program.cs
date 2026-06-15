@@ -2,6 +2,7 @@ using Backend;
 using Backend.Policies;
 using Backend.Repositories;
 using Backend.Services;
+using Backend.Validators;
 using MongoDB.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -38,10 +39,18 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
 builder.Services.AddSingleton<MongoDbService>();
 builder.Services.AddSingleton<MongoDbResiliencePolicy>();
 builder.Services.AddScoped<CustomerRepository>();
+builder.Services.AddSingleton<MongoDbStartupValidator>();
 // mongodb section end
 
 
 var app = builder.Build();
+
+// Validate MongoDB connection at startup
+using (var scope = app.Services.CreateScope())
+{
+    var mongoValidator = scope.ServiceProvider.GetRequiredService<MongoDbStartupValidator>();
+    await mongoValidator.ValidateConnectionAsync();
+}
 
 // Global exception handling middleware
 app.UseExceptionHandler(errorApp =>

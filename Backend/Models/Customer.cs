@@ -1,5 +1,7 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 
 namespace Backend.Models
 {
@@ -10,9 +12,13 @@ namespace Backend.Models
         public string? Id { get; set; } = Guid.NewGuid().ToString();
 
         [BsonElement("name")]
+        [Required(ErrorMessage = "Name is required")]
         public string Name { get; set; } = string.Empty;
 
         [BsonElement("active")]
-        public bool IsActive { get; set; }
+        [Required(ErrorMessage = "Active status is required")]
+        [Display(Name = "Is Active")]
+        [DefaultValue(false)]
+        public bool IsActive { get; set; } = false;
     }
 }

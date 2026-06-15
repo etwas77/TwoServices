@@ -1,13 +1,13 @@
 ﻿using Backend.Models;
+using Backend.Policies;
 using Backend.Services;
-using MongoDB.Driver;
 
 namespace Backend.Repositories
 {
     public class CustomerRepository : GenericRepository<Customer>
     {
-        public CustomerRepository(MongoDbService mongoDbService) 
-            : base(mongoDbService, "customers")
+        public CustomerRepository(MongoDbService mongoDbService, ILogger<CustomerRepository> logger, MongoDbResiliencePolicy resiliencePolicy) 
+            : base(mongoDbService, "customers", logger, resiliencePolicy)
         { 
         }
     }

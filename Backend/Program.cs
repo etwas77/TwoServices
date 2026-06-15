@@ -1,4 +1,5 @@
 using Backend;
+using Backend.Policies;
 using Backend.Repositories;
 using Backend.Services;
 using MongoDB.Driver;
@@ -12,8 +13,8 @@ builder.Services.AddControllers();
 //builder.Services.AddOpenApi();
 
 // Add Swagger services
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+//builder.Services.AddEndpointsApiExplorer();
+//builder.Services.AddSwaggerGen();
 
 // Add CORS
 builder.Services.AddCors(options =>
@@ -35,18 +36,45 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
     return new MongoClient(settings?.ConnectionString);
 });
 builder.Services.AddSingleton<MongoDbService>();
+builder.Services.AddSingleton<MongoDbResiliencePolicy>();
 builder.Services.AddScoped<CustomerRepository>();
 // mongodb section end
 
 
 var app = builder.Build();
 
+// Global exception handling middleware
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exceptionHandlerFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+        var exception = exceptionHandlerFeature?.Error;
+
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogError(exception, "Unhandled exception occurred: {Message}", exception?.Message);
+
+        // once exception is caught, we return a generic error response to the client
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+
+        var response = new
+        {
+            error = "An internal server error occurred",
+            details = app.Environment.IsDevelopment() ? exception?.Message : null
+        };
+
+        await context.Response.WriteAsJsonAsync(response);
+
+    });
+});
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     //app.MapOpenApi();
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    //app.UseSwagger();
+    //app.UseSwaggerUI();
 }
 
 // Enable CORS

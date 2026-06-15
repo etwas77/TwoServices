@@ -10,6 +10,6 @@ project (.Net Web API and mongodb as database) will implement a simple microserv
     - retry policy (using polly nuget)
 - service A:
     - offers REST API, that takes customerId as anput and validates/sets customer via backend service.
-- both services have swagger modules.
+- swagger module or HTTP Request file (Backend.http) in projects for fast testing.
 
 under development, look into develop branch

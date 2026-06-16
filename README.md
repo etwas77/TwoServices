@@ -8,8 +8,10 @@ project (.Net Web API and mongodb as database) will implement a simple microserv
     - startup validator for db and resilience policy
     - model validation
     - retry policy (using polly nuget)
+    - REST API for user credentials, is used in conjunction with JWT authorisation via serviceA.
 - service A:
-    - offers REST API, that takes customerId as anput and validates/sets customer via backend service.
+    - functions as a gateway to backend
+    - offers REST API, that takes customerId as anput and validates/sets customer via backend service
     - endpoint uses Backend REST API, no direct connection to db
     - no logging or error handling, to save effort. (can be done analog to backend)
 - common lib Contracts, with DTO for both Backend and ServiceA

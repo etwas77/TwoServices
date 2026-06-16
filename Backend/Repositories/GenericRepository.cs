@@ -6,9 +6,9 @@ namespace Backend.Repositories
 {
     public class GenericRepository<T> where T : class
     {
-        private readonly IMongoCollection<T> _collection;
-        private readonly ILogger _logger;
-        private readonly MongoDbResiliencePolicy _resiliencePolicy;
+        protected readonly IMongoCollection<T> _collection;
+        protected readonly ILogger _logger;
+        protected readonly MongoDbResiliencePolicy _resiliencePolicy;
 
         public GenericRepository(MongoDbService mongoDbService, string collectionName, 
             ILogger logger, 

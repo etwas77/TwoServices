@@ -5,12 +5,17 @@ using Backend.Repositories;
 using Backend.Services;
 using Backend.Validators;
 using MongoDB.Driver;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 //builder.Services.AddOpenApi();
 
@@ -40,6 +45,8 @@ builder.Services.AddSingleton<IMongoClient>(sp =>
 builder.Services.AddSingleton<MongoDbService>();
 builder.Services.AddSingleton<MongoDbResiliencePolicy>();
 builder.Services.AddScoped<CustomerRepository>();
+builder.Services.AddScoped<UserRepository>();
+builder.Services.AddScoped<RoleRepository>();
 builder.Services.AddSingleton<MongoDbStartupValidator>();
 // mongodb section end
 
@@ -48,6 +55,8 @@ builder.Services.AddAutoMapper(config =>
 {
     config.AddProfile<MappingProfile>();
 });
+
+builder.Services.AddSingleton<PasswordHasher>();
 
 
 var app = builder.Build();

@@ -13,4 +13,28 @@ Content-Type: application/json
   "isActive": true
 }
 
-###
+### register new user
+POST {{Backend_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "babe",
+  "password": "babe123",
+  "email": "babe@example.com"
+}
+
+### validate user credentials
+POST {{Backend_HostAddress}}/api/auth/validate
+Content-Type: application/json
+
+{
+  "username": "babe",
+  "password": "babe123"
+}
+
+### create role
+POST {{Backend_HostAddress}}/api/role/create
+Content-Type: application/json
+{
+  "RoleType": "User"
+}

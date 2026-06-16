@@ -5,6 +5,24 @@
 # Update a customer
 PUT {{ServiceA_HostAddress}}/api/customer/561a4aa6-342d-4523-b64f-966c927b9b16?active=false
 Content-Type: application/json
+Authorization: Bearer <token>
 
+### Register new user
+POST {{ServiceA_HostAddress}}/api/auth/register
+Content-Type: application/json
 
-###
+{
+  "username": "testuser",
+  "password": "Test@1234",
+  "email": "test@example.com"
+}
+
+### Login
+POST {{ServiceA_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "testuser",
+  "password": "Test@1234"
+}
+

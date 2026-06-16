@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
 using Contracts.DTO;
 using AutoMapper;
+using Microsoft.AspNetCore.Authorization;
 
 
 namespace Backend.Controllers

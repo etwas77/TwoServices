@@ -1,4 +1,5 @@
 using Contracts.DTO;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Net.Http.Json;
 
@@ -6,6 +7,7 @@ namespace ServiceA.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class CustomerController : ControllerBase
     {
         private readonly IHttpClientFactory _httpClientFactory;

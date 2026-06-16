@@ -83,8 +83,9 @@ namespace Backend.Controllers
             }
 
             _logger.LogInformation("User {Username} validated successfully", request.Username);
+            UserDto userDto = _mapper.Map<UserDto>(user);
 
-            return Ok(new { User = _mapper.Map<UserDto>(user), message = "User is valid" });
+            return Ok(userDto);
         }
     }
 

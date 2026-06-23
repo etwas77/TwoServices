@@ -14,6 +14,10 @@ namespace Backend.Mappings
             CreateMap<UserDto, User>();
             CreateMap<Role, RoleDto>();
             CreateMap<RoleDto, Role>();
+            CreateMap<Item, ItemDto>();
+            CreateMap<ItemDto, Item>();
+            CreateMap<Order, OrderDto>();
+            CreateMap<OrderDto, Order>();
         }
     }
 }

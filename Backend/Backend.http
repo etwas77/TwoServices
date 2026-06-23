@@ -38,3 +38,17 @@ Content-Type: application/json
 {
   "RoleType": "User"
 }
+
+### create item
+POST {{Backend_HostAddress}}/api/item/create
+Content-Type: application/json
+{
+  "name": "Item2",
+  "quantity": 20.0
+}
+
+### get all orders  
+GET {{Backend_HostAddress}}/api/order
+
+### get order by id
+GET {{Backend_HostAddress}}/api/order/{id}  

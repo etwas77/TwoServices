@@ -47,6 +47,8 @@ builder.Services.AddSingleton<MongoDbResiliencePolicy>();
 builder.Services.AddScoped<CustomerRepository>();
 builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<RoleRepository>();
+builder.Services.AddScoped<ItemRepository>();
+builder.Services.AddScoped<OrderRepository>();
 builder.Services.AddSingleton<MongoDbStartupValidator>();
 // mongodb section end
 

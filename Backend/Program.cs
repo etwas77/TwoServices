@@ -4,6 +4,7 @@ using Backend.Policies;
 using Backend.Repositories;
 using Backend.Services;
 using Backend.Validators;
+using Contracts.Config;
 using MongoDB.Driver;
 using System.Text.Json.Serialization;
 
@@ -60,6 +61,8 @@ builder.Services.AddAutoMapper(config =>
 
 builder.Services.AddSingleton<PasswordHasher>();
 
+builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMq"));
+builder.Services.AddHostedService<OrderConsumerHostedService>();
 
 var app = builder.Build();
 

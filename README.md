@@ -14,6 +14,8 @@ project (.Net Web API and mongodb as database) will implement a simple microserv
     - offers REST API, that takes customerId as anput and validates/sets customer via backend service
     - endpoint uses Backend REST API, no direct connection to db
     - no logging or error handling, to save effort. (can be done analog to backend)
+    - JWT authentification in force. login and register endpoints implemented, they use backend to gain access to user credentials.
+    - CustomerController is protected by [Authorize]
 - common lib Contracts, with DTO for both Backend and ServiceA
 - swagger module or HTTP Request file (Backend.http, ServiceA.http) in projects for fast testing.
 

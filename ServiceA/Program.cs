@@ -66,7 +66,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 builder.Services.Configure<RabbitMqSettings>(builder.Configuration.GetSection("RabbitMq"));
-
+builder.Services.AddScoped<OrderPublisherService>();
 
 var app = builder.Build();
 

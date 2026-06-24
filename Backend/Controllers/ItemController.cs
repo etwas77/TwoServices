@@ -38,5 +38,17 @@ namespace Backend.Controllers
             _logger.LogInformation("Item {ItemName} created successfully", itemDto.Name);
             return Ok(new { message = "Item created successfully" });
         }
+
+        [HttpGet("name/{name}")]
+        public async Task<ActionResult<ItemDto>> GetByName(string name)
+        {
+            var item = await _itemRepository.GetByNameAsync(name);
+            if (item == null)
+            {
+                return NotFound(new { message = "Item not found" });
+            }
+            var itemDto = _mapper.Map<ItemDto>(item);
+            return Ok(itemDto);
+        }
     }
 }

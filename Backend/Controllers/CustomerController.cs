@@ -92,6 +92,18 @@ namespace Backend.Controllers
             return Ok(customerDto);
         }
 
+        [HttpGet("name/{name}")]
+        public async Task<ActionResult<CustomerDto>> GetByName(string name)
+        {
+            var customer = await _repository.GetByNameAsync(name);
+            if (customer == null)
+            {
+                return NotFound();
+            }
+            var customerDto = _mapper.Map<CustomerDto>(customer);
+            return Ok(customerDto);
+        }
+
         [HttpDelete]
         public async Task<ActionResult> Delete(string id)
         {

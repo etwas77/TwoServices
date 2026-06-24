@@ -26,3 +26,20 @@ Content-Type: application/json
   "password": "Test@1234"
 }
 
+### publish order
+POST {{ServiceA_HostAddress}}/api/order/publish
+Content-Type: application/json
+{
+    "Id":  "order111",
+    "CustomerName":  "Alice",
+    "Items": [
+        {
+            "Name":  "Item1",
+            "Quantity":  2
+        },
+        {
+            "Name":  "Item2",
+            "Quantity":  1
+        }
+    ]
+}

@@ -30,15 +30,11 @@ Content-Type: application/json
 POST {{ServiceA_HostAddress}}/api/order/publish
 Content-Type: application/json
 {
-    "Id":  "order111",
+    "Id":  "retry-test",
     "CustomerName":  "Alice",
     "Items": [
         {
             "Name":  "Item1",
-            "Quantity":  2
-        },
-        {
-            "Name":  "Item2",
             "Quantity":  1
         }
     ]

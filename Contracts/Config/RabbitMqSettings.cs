@@ -17,5 +17,10 @@ namespace Contracts.Config
         public string OrderQueue { get; set; } = string.Empty;
 
         public string FailedOrdersQueue { get; set; } = string.Empty;
+
+        // retry stuff
+        public string RetryQueue { get; set; } = string.Empty;
+        public int RetryDelayMilliseconds { get; set; } = 5000;
+        public int MaxRetryAttempts { get; set; } = 3;
     }
 }

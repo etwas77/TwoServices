@@ -19,7 +19,7 @@ namespace Backend.Services
         private readonly IServiceScopeFactory _serviceScopeFactory;
 
         public OrderConsumerHostedService(
-            ILogger<OrderConsumerHostedService> logger, 
+            ILogger<OrderConsumerHostedService> logger,
             IOptions<RabbitMqSettings> rabbitMqSettings,
             //OrderRepository orderRepository,
             IServiceScopeFactory serviceScopeFactory
@@ -62,8 +62,13 @@ namespace Backend.Services
                     if (orderDto is null)
                     {
                         _logger.LogError("Failed to deserialize message from queue {OrderQueue}: {Message}", _rabbitMqSettings.OrderQueue, message);
+                        await PublishToFailedQueueAsync(message, new Exception("Deserialization failed"), GetRetryCount(ea), ea.DeliveryTag, stoppingToken);
                         await _channel!.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
                         return;
+                    }
+                    if(orderDto.Id.StartsWith("retry-test"))
+                    {
+                        throw new InvalidOperationException("failure due to forced retry test");
                     }
 
                     var existingOrder = await orderRepository.GetByIdAsync(orderDto.Id);
@@ -92,25 +97,19 @@ namespace Backend.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "An error occurred while processing the message with delivery tag {DeliveryTag}", ea.DeliveryTag);
-                    var failedMessage = new
+
+                    var retryCount = GetRetryCount(ea);
+                    var nextRetryCount = retryCount + 1;
+                    _logger.LogError(ex, "An error occurred while processing the message with delivery tag {DeliveryTag}. Retry count: {RetryCount}", ea.DeliveryTag, retryCount);
+
+                    if(nextRetryCount <= _rabbitMqSettings.MaxRetryAttempts)
                     {
-                        originalMessage = message,
-                        error = ex.Message,
-                        queue = _rabbitMqSettings.OrderQueue,
-                        deliveryTag = ea.DeliveryTag
-                    };
-                    var failedPayload = JsonSerializer.Serialize(failedMessage);
-                    var failedBody = Encoding.UTF8.GetBytes(failedPayload);
+                        await PublishToRetryQueueAsync(message, nextRetryCount, stoppingToken);
+                        await _channel!.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
+                        return;
+                    }
 
-                    await _channel!.BasicPublishAsync(
-                        exchange: string.Empty,
-                        routingKey: _rabbitMqSettings.FailedOrdersQueue,
-                        body: failedBody,
-                        cancellationToken: stoppingToken
-                        );
-
-                    _logger.LogWarning("message with tag {DeliveryTag} moved to queue {FailedOrdersQueue}", _rabbitMqSettings.FailedOrdersQueue, ea.DeliveryTag);
+                    await PublishToFailedQueueAsync(message, ex, retryCount, ea.DeliveryTag, stoppingToken);
                     await _channel!.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
                 }
             };
@@ -134,12 +133,12 @@ namespace Backend.Services
         public override async Task StopAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Stopping order consumer hosted service");
-            if(_channel is not null)
+            if (_channel is not null)
             {
                 await _channel.CloseAsync(cancellationToken);
                 await _channel.DisposeAsync();
             }
-            if(_connection is not null)
+            if (_connection is not null)
             {
                 await _connection.CloseAsync(cancellationToken);
                 await _connection.DisposeAsync();
@@ -177,6 +176,101 @@ namespace Backend.Services
                 autoDelete: false,
                 cancellationToken: cancellationToken);
             _logger.LogInformation("RabbitMQ queue declared: {FailedOrdersQueue}", _rabbitMqSettings.FailedOrdersQueue);
+
+
+            var retryQueueArguments = new Dictionary<string, object?>
+            {
+                ["x-message-ttl"] = _rabbitMqSettings.RetryDelayMilliseconds, // Retry delay
+                ["x-dead-letter-exchange"] = string.Empty,
+                ["x-dead-letter-routing-key"] = _rabbitMqSettings.OrderQueue
+            };
+
+            await _channel.QueueDeclareAsync(
+                queue: _rabbitMqSettings.RetryQueue,
+                durable: true,
+                exclusive: false,
+                autoDelete: false,
+                arguments: retryQueueArguments,
+                cancellationToken: cancellationToken);
+            _logger.LogInformation("RabbitMQ retry-queue declared: {RetryQueue}", _rabbitMqSettings.RetryQueue);
+        }
+
+        private static int GetRetryCount(BasicDeliverEventArgs ea)
+        {
+            if (ea.BasicProperties?.Headers is null || !ea.BasicProperties.Headers.TryGetValue("x-retry-count", out var rawValue) || rawValue is null)
+            {
+                return 0;
+            }
+            return rawValue switch
+            {
+                byte retryByte => retryByte,
+                sbyte retrySByte => retrySByte,
+                short retryShort => retryShort,
+                int retryInt => retryInt,
+                long retryLong => (int)retryLong,
+                byte[] retryBytes when int.TryParse(Encoding.UTF8.GetString(retryBytes), out var retryCount) => retryCount,
+                _ => 0
+            };
+        }
+
+        private async Task PublishToRetryQueueAsync(
+            string message,
+            int nextRetryCount,
+            CancellationToken cancellationToken
+        )
+        {
+            var retryBody = Encoding.UTF8.GetBytes(message);
+            var properties = new BasicProperties
+            {
+                Persistent = true,
+                Headers = new Dictionary<string, object?>
+                {
+                    ["x-retry-count"] = nextRetryCount
+                }
+            };
+            await _channel!.BasicPublishAsync(
+                exchange: string.Empty,
+                routingKey: _rabbitMqSettings.RetryQueue,
+                mandatory: false,
+                basicProperties: properties,
+                body: retryBody,
+                cancellationToken: cancellationToken
+            );
+            _logger.LogWarning("Message published to retry queue: {RetryQueue} with retry count: {RetryCount}", _rabbitMqSettings.RetryQueue, nextRetryCount);
+        }
+
+        private async Task PublishToFailedQueueAsync(
+            string message,
+            Exception ex,
+            int retryCount,
+            ulong deliveryTag,
+            CancellationToken cancellationToken
+        )
+        {
+            var failedMessage = new
+            {
+                originalMessage = message,
+                error = ex.Message,
+                queue = _rabbitMqSettings.OrderQueue,
+                retryCount,
+                deliveryTag,
+                failedAtUtc = DateTime.UtcNow
+            };
+            var failedPayload = JsonSerializer.Serialize(failedMessage);
+            var failedBody = Encoding.UTF8.GetBytes(failedPayload);
+            var properties = new BasicProperties
+            {
+                Persistent = true,
+            };
+            await _channel!.BasicPublishAsync(
+                exchange: string.Empty,
+                routingKey: _rabbitMqSettings.FailedOrdersQueue,
+                mandatory: false,
+                basicProperties: properties,
+                body: failedBody,
+                cancellationToken: cancellationToken
+            );
+            _logger.LogWarning("Message published to failed queue: {FailedQueue} with retry count: {RetryCount}", _rabbitMqSettings.FailedOrdersQueue, retryCount);
         }
     }
 }

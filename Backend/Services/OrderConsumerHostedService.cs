@@ -15,13 +15,20 @@ namespace Backend.Services
         private readonly RabbitMqSettings _rabbitMqSettings;
         private IConnection? _connection;
         private IChannel? _channel;
-        private readonly OrderRepository _orderRepository;
+        //private readonly OrderRepository _orderRepository;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
 
-        public OrderConsumerHostedService(ILogger<OrderConsumerHostedService> logger, IOptions<RabbitMqSettings> rabbitMqSettings, OrderRepository orderRepository)
+        public OrderConsumerHostedService(
+            ILogger<OrderConsumerHostedService> logger, 
+            IOptions<RabbitMqSettings> rabbitMqSettings,
+            //OrderRepository orderRepository,
+            IServiceScopeFactory serviceScopeFactory
+            )
         {
             _logger = logger;
             _rabbitMqSettings = rabbitMqSettings.Value;
-            _orderRepository = orderRepository;
+            //_orderRepository = orderRepository;
+            _serviceScopeFactory = serviceScopeFactory;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -39,6 +46,9 @@ namespace Backend.Services
             var consumer = new AsyncEventingBasicConsumer(_channel);
             consumer.ReceivedAsync += async (model, ea) =>
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var orderRepository = scope.ServiceProvider.GetRequiredService<OrderRepository>();
+
                 _logger.LogInformation("received message with delivery tag {DeliveryTag}", ea.DeliveryTag);
                 var message = string.Empty;
                 _logger.LogInformation("Received message from queue {OrderQueue}: {Message}", _rabbitMqSettings.OrderQueue, message);
@@ -56,7 +66,7 @@ namespace Backend.Services
                         return;
                     }
 
-                    var existingOrder = await _orderRepository.GetByIdAsync(orderDto.Id);
+                    var existingOrder = await orderRepository.GetByIdAsync(orderDto.Id);
                     if (existingOrder is not null)
                     {
                         _logger.LogInformation("Order with ID {OrderId} already exists. Skipping processing.", orderDto.Id);
@@ -75,7 +85,7 @@ namespace Backend.Services
                             Quantity = i.Quantity
                         }).ToList()
                     };
-                    await _orderRepository.CreateAsync(order);
+                    await orderRepository.CreateAsync(order);
                     _logger.LogInformation("Order with ID {OrderId} processed and saved to database.", orderDto.Id);
 
                     await _channel!.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);

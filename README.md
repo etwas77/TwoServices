@@ -6,4 +6,4 @@ project (.Net Web API and mongodb as database) will implement a simple microserv
     - offers REST API, that takes customerId as anput and validates/sets customer via backend service.
 - both services have swagger modules.
 
-under development, look into develop branch
+still under development, look into develop branch for more details

@@ -5,8 +5,7 @@
 # Update a customer
 PUT {{ServiceA_HostAddress}}/api/customer/561a4aa6-342d-4523-b64f-966c927b9b16?active=false
 Content-Type: application/json
-Authorization: Bearer <token>
-
+Authorization: <token>
 ### Register new user
 POST {{ServiceA_HostAddress}}/api/auth/register
 Content-Type: application/json
@@ -29,8 +28,9 @@ Content-Type: application/json
 ### publish order
 POST {{ServiceA_HostAddress}}/api/order/publish
 Content-Type: application/json
+Authorization: <token>
 {
-    "Id":  "retry-test",
+    "Id":  "test1",
     "CustomerName":  "Alice",
     "Items": [
         {
@@ -41,4 +41,6 @@ Content-Type: application/json
 }
 
 ### get all orders
-GET {{ServiceA_HostAddress}}/api/order  
+GET {{ServiceA_HostAddress}}/api/order
+Content-Type: application/json
+Authorization: <token>

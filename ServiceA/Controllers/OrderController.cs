@@ -1,5 +1,6 @@
 ﻿using Contracts.Config;
 using Contracts.DTO;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using ServiceA.Services;
@@ -10,6 +11,7 @@ namespace ServiceA.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class OrderController : ControllerBase
     {
         private readonly ILogger<OrderController> _logger;

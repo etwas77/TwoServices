@@ -47,7 +47,7 @@ The solution is no longer just a basic customer example. The current implementat
 - customer CRUD in **Backend**
 - customer activation update through **ServiceA**
 - user registration and login split between **ServiceA** and **Backend**
-- JWT protection on `ServiceA` customer endpoints
+- JWT protection on `ServiceA` customer and order endpoints
 - item and role setup endpoints in **Backend**
 - RabbitMQ-based order publishing in **ServiceA**
 - RabbitMQ-based order consumption in **Backend**
@@ -222,10 +222,11 @@ graph TB
 - login and registration entry points for clients
 - JWT issuance after Backend credential validation
 - protected customer activation endpoint
-- order submission endpoint
+- customer activation confirmation response payload
+- protected order submission endpoint
 - pre-publish validation of customer and items through Backend APIs
 - RabbitMQ order publishing
-- proxy read endpoint for orders stored in Backend
+- protected proxy read endpoint for orders stored in Backend
 
 **Key runtime pieces**:
 
@@ -259,11 +260,12 @@ The existing synchronous flow is still the main pattern for customer and auth op
 
 #### Customer activation flow
 
-1. Client calls `ServiceA` `PUT /api/customer/{id}?active={bool}`
+1. Authenticated client calls `ServiceA` `PUT /api/customer/{id}?active={bool}`
 2. `ServiceA` reads the customer from `Backend`
 3. `ServiceA` updates `IsActive`
 4. `ServiceA` sends the full `CustomerDto` back to `Backend`
 5. `Backend` updates MongoDB
+6. `ServiceA` returns `200 OK` with a confirmation payload containing `Message`, `IsActive`, and `Id`
 
 #### Authentication flow
 
@@ -284,7 +286,7 @@ The current RabbitMQ implementation is centered on orders.
 
 #### Publish flow
 
-1. Client sends `POST /api/order/publish` to `ServiceA`
+1. Authenticated client sends `POST /api/order/publish` to `ServiceA`
 2. `ServiceA` validates:
    - customer exists in Backend
    - every item exists in Backend
@@ -443,14 +445,14 @@ At the moment the message contract is intentionally simple and is reused for bot
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| PUT | `/api/customer/{id}?active={bool}` | Protected activation update |
+| PUT | `/api/customer/{id}?active={bool}` | Protected activation update that returns a confirmation payload |
 
 #### Order
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| POST | `/api/order/publish` | Validate and enqueue an order |
-| GET | `/api/order` | Proxy read of stored orders from Backend |
+| POST | `/api/order/publish` | Protected validate-and-enqueue order endpoint |
+| GET | `/api/order` | Protected proxy read of stored orders from Backend |
 
 **Swagger UI**: `http://localhost:5234/swagger`
 
@@ -554,7 +556,8 @@ Important sections in `ServiceA\appsettings.json`:
 - RabbitMQ support is implemented and no longer just planned.
 - The async demo is currently focused only on **orders**.
 - Order idempotency currently relies on `OrderDto.Id`; there is no separate message-id contract yet.
-- `ServiceA` customer endpoints are protected with JWT, but the order endpoints are currently separate from that protection.
+- `ServiceA` customer and order endpoints are protected with JWT; clients need a valid token for customer activation, order publishing, and order reads.
+- `ServiceA` customer activation now returns `200 OK` with a small confirmation payload instead of `204 No Content`.
 - Backend registration assumes a `User` role already exists in MongoDB. On a fresh database, create it first through `POST /api/role/create`.
 - There is currently no automated test project; manual verification is done through the `.http` files and ServiceA Swagger.
 

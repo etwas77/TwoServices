@@ -45,7 +45,7 @@ namespace ServiceA.Controllers
 
             // Validate customer by name
             var response = await _httpClient.GetAsync($"{_backendBaseUrl}/api/customer/name/{orderDto.CustomerName}");
- 
+
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Customer validation failed for order: {order}", orderDto);
@@ -74,12 +74,37 @@ namespace ServiceA.Controllers
             await _orderPublisherService.PublishOrderAsync(orderDto, HttpContext.RequestAborted);
 
 
-            return Accepted(new { 
-                message = "Order accepted and qeued for async processing" ,
+            return Accepted(new
+            {
+                message = "Order accepted and qeued for async processing",
                 orderId = orderDto.Id,
                 queue = _rabbitMqSettings.OrderQueue,
                 status = "queued"
             });
+        }
+
+        [HttpGet]
+        public async Task<ActionResult<List<OrderDto>>> Get()
+        {
+            if (_httpClient == null || string.IsNullOrEmpty(_backendBaseUrl))
+            {
+                return BadRequest(new { message = "HttpClient or BackendBaseUrl Initialization failed" });
+            }
+            var response = await _httpClient.GetAsync($"{_backendBaseUrl}/api/order");
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to retrieve orders from backend API.");
+                return BadRequest(new { message = "Failed to retrieve orders" });
+            }
+
+            var options = new JsonSerializerOptions
+            {
+                Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) },
+                PropertyNameCaseInsensitive = true
+            };
+            var ordersDto = await response.Content.ReadFromJsonAsync<List<OrderDto>>(options);
+
+            return Ok(ordersDto);
         }
     }
 }

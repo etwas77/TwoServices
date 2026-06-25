@@ -71,6 +71,7 @@ namespace Backend.Services
                         throw new InvalidOperationException("failure due to forced retry test");
                     }
 
+                    // check for duplicate order ID in the database before saving
                     var existingOrder = await orderRepository.GetByIdAsync(orderDto.Id);
                     if (existingOrder is not null)
                     {
@@ -90,6 +91,7 @@ namespace Backend.Services
                             Quantity = i.Quantity
                         }).ToList()
                     };
+
                     await orderRepository.CreateAsync(order);
                     _logger.LogInformation("Order with ID {OrderId} processed and saved to database.", orderDto.Id);
 

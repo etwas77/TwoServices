@@ -39,3 +39,6 @@ Content-Type: application/json
         }
     ]
 }
+
+### get all orders
+GET {{ServiceA_HostAddress}}/api/order  

@@ -2,32 +2,61 @@
 
 ## Table of Contents
 - [System Overview](#system-overview)
+- [Current Development State](#current-development-state)
 - [Architecture Diagram](#architecture-diagram)
 - [Projects](#projects)
   - [Contracts](#contracts)
   - [Backend](#backend)
   - [ServiceA](#servicea)
-- [Communication Flow](#communication-flow)
-- [Data Models](#data-models)
-- [API Endpoints](#api-endpoints)
-- [Technology Stack](#technology-stack)
+- [Communication Flows](#communication-flows)
+  - [Synchronous HTTP flow](#synchronous-http-flow)
+  - [Asynchronous RabbitMQ flow](#asynchronous-rabbitmq-flow)
+- [Data and Messaging Models](#data-and-messaging-models)
+- [API Surface](#api-surface)
 - [Configuration](#configuration)
+- [Technology Stack](#technology-stack)
+- [Known Development Notes](#known-development-notes)
 
 ---
 
 ## System Overview
 
-TwoServices is a microservices-based ASP.NET Core application demonstrating service-to-service communication, data persistence, and shared contract patterns. The solution consists of three projects:
+TwoServices is a small microservices solution built with ASP.NET Core and MongoDB. It currently demonstrates two integration styles:
 
-1. **Contracts** - Shared data transfer objects (DTOs)
-2. **Backend** - Data service with MongoDB persistence
-3. **ServiceA** - Gateway/proxy service that communicates with Backend
+1. **Synchronous service-to-service HTTP calls**
+2. **Asynchronous message-based processing with RabbitMQ**
 
-### Architecture Pattern
-- **Microservices Architecture**: Independent, deployable services
-- **API Gateway Pattern**: ServiceA acts as a gateway/proxy to Backend
-- **Shared Contracts**: Common DTOs in separate assembly
-- **Repository Pattern**: Backend uses repository pattern for data access
+The solution consists of three projects:
+
+1. **Contracts** - shared DTOs and shared RabbitMQ configuration model
+2. **Backend** - MongoDB-backed data service and RabbitMQ consumer
+3. **ServiceA** - gateway/auth service, HTTP proxy, and RabbitMQ publisher
+
+### Main architectural roles
+
+- **Contracts** defines transport models shared by both services.
+- **Backend** owns persistence, repository abstractions, AutoMapper mappings, authentication data, and message consumption.
+- **ServiceA** stays client-facing: it issues JWTs, proxies selected Backend operations, validates order inputs via Backend APIs, and publishes orders to RabbitMQ.
+
+---
+
+## Current Development State
+
+The solution is no longer just a basic customer example. The current implementation includes:
+
+- customer CRUD in **Backend**
+- customer activation update through **ServiceA**
+- user registration and login split between **ServiceA** and **Backend**
+- JWT protection on `ServiceA` customer endpoints
+- item and role setup endpoints in **Backend**
+- RabbitMQ-based order publishing in **ServiceA**
+- RabbitMQ-based order consumption in **Backend**
+- MongoDB persistence for consumed orders in the `orders` collection
+- retry handling via a dedicated retry queue
+- failed-message routing to `failed_orders`
+- idempotency protection by checking for an existing order before insert
+
+This means the repository now demonstrates both a classic gateway/data-service split and a basic reliable asynchronous processing flow.
 
 ---
 
@@ -35,43 +64,73 @@ TwoServices is a microservices-based ASP.NET Core application demonstrating serv
 
 ```mermaid
 graph TB
-	Client[External Client]
+    Client[External Client]
 
-	subgraph "ServiceA - Gateway Service"
-		SA_API[CustomerController]
-		SA_HTTP[HttpClient]
-	end
+    subgraph "ServiceA - Gateway / Auth / Publisher"
+        SAAuth[AuthController]
+        SACustomer[CustomerController]
+        SAOrder[OrderController]
+        SAHttp[HttpClient / IHttpClientFactory]
+        SAPublisher[OrderPublisherService]
+        SAJwt[JwtTokenService]
+    end
 
-	subgraph "Contracts Library"
-		DTO[CustomerDto]
-	end
+    subgraph "Contracts"
+        DTOs[DTOs]
+        RMQCfg[RabbitMqSettings]
+    end
 
-	subgraph "Backend - Data Service"
-		BE_API[CustomerController]
-		BE_Mapper[AutoMapper]
-		BE_Repo[CustomerRepository]
-		BE_GenRepo[GenericRepository]
-		BE_Model[Customer Model]
-	end
+    subgraph "RabbitMQ"
+        OrderQueue[order_queue]
+        RetryQueue[order_retry_queue]
+        FailedQueue[failed_orders]
+    end
 
-	subgraph "Data Layer"
-		MongoDB[(MongoDB Database)]
-	end
+    subgraph "Backend - Data Service / Consumer"
+        BEAuth[AuthController]
+        BECustomer[CustomerController]
+        BEItem[ItemController]
+        BERole[RoleController]
+        BEOrder[OrderController]
+        BEConsumer[OrderConsumerHostedService]
+        BEMapper[AutoMapper MappingProfile]
+        BERepos[Repositories]
+    end
 
-	Client -->|HTTP| SA_API
-	SA_API -->|Uses| DTO
-	SA_API -->|HTTP REST| SA_HTTP
-	SA_HTTP -->|GET/PUT/POST/DELETE| BE_API
-	BE_API -->|Uses| DTO
-	BE_API -->|Maps| BE_Mapper
-	BE_Mapper -->|DTO ↔ Entity| BE_Model
-	BE_API --> BE_Repo
-	BE_Repo --> BE_GenRepo
-	BE_GenRepo -->|CRUD Operations| MongoDB
+    subgraph "MongoDB"
+        DB[(TwoServicesDb)]
+    end
 
-	style Client fill:#e1f5ff
-	style MongoDB fill:#47a248,color:#fff
-	style DTO fill:#ffd700
+    Client -->|HTTP| SAAuth
+    Client -->|HTTP| SACustomer
+    Client -->|HTTP| SAOrder
+
+    SAAuth -->|HTTP| SAHttp
+    SACustomer -->|HTTP| SAHttp
+    SAOrder -->|HTTP validation calls| SAHttp
+    SAHttp -->|REST| BEAuth
+    SAHttp -->|REST| BECustomer
+    SAHttp -->|REST| BEItem
+    SAHttp -->|REST| BEOrder
+
+    SAAuth --> SAJwt
+    SAOrder --> SAPublisher
+    SAPublisher -->|publish persistent message| OrderQueue
+
+    OrderQueue --> BEConsumer
+    BEConsumer -->|retry on failure| RetryQueue
+    RetryQueue -->|dead-letter after TTL| OrderQueue
+    BEConsumer -->|final failure| FailedQueue
+    BEConsumer --> BERepos
+
+    BECustomer --> BEMapper
+    BEOrder --> BEMapper
+    BEAuth --> BERepos
+    BECustomer --> BERepos
+    BEItem --> BERepos
+    BERole --> BERepos
+    BEOrder --> BERepos
+    BERepos --> DB
 ```
 
 ---
@@ -80,439 +139,426 @@ graph TB
 
 ### Contracts
 
-**Purpose**: Shared library containing Data Transfer Objects (DTOs) used for communication between services.
+**Purpose**: shared assembly for DTOs and shared configuration classes used across services.
 
-**Location**: `./Contracts/`
+**Current shared content**:
+- customer DTOs
+- auth/user DTOs
+- item DTOs
+- role DTOs and enums
+- order DTOs
+- `RabbitMqSettings`
 
-**Target Framework**: .NET 10.0
+**Important current role**:
+- keeps the RabbitMQ order message contract independent from Backend MongoDB models
+- provides a single shared view of queue naming and retry settings
 
-**Responsibilities**:
-- Define shared data contracts
-- Ensure consistent data structure across services
-- Decouple service implementations from shared types
-
-**Key Files**:
-```
-Contracts/
-├── DTO/
-│   └── CustomerDto.cs
-└── Contracts.csproj
-```
-
-**CustomerDto Model**:
-```csharp
-public class CustomerDto
-{
-	public string Id { get; set; }
-	public string Name { get; set; }
-	public bool IsActive { get; set; }
-}
-```
-
-**Dependencies**: None (standalone library)
-
-**Consumed By**: Backend, ServiceA
-
----
+**Notable types**:
+- `Contracts\DTO\CustomerDto.cs`
+- `Contracts\DTO\UserDto.cs`
+- `Contracts\DTO\OrderDto.cs`
+- `Contracts\Config\RabbitMqSettings.cs`
 
 ### Backend
 
-**Purpose**: Primary data service responsible for CRUD operations and MongoDB persistence.
+**Purpose**: primary persistence and processing service.
 
-**Location**: `./Backend/`
+**Current responsibilities**:
+- customer CRUD against MongoDB
+- user storage and credential validation
+- role storage
+- item storage and lookup
+- order storage
+- RabbitMQ order consumption
+- idempotent order processing
+- retry/failure routing for message processing
 
-**Target Framework**: .NET 10.0
+**Key runtime pieces**:
 
-**Port Configuration**:
-- HTTP: `http://localhost:5148`
-- HTTPS: `https://localhost:7118`
+1. **Controllers**
+   - `CustomerController`
+   - `AuthController`
+   - `RoleController`
+   - `ItemController`
+   - `OrderController`
 
-**Responsibilities**:
-- Manage customer data in MongoDB
-- Provide RESTful API for customer operations
-- Map between DTOs and database entities
-- Implement resilience policies for database operations
-- Validate MongoDB connection at startup
+2. **Repositories**
+   - `GenericRepository<T>` base abstraction
+   - `CustomerRepository`
+   - `UserRepository`
+   - `RoleRepository`
+   - `ItemRepository`
+   - `OrderRepository`
 
-**Key Components**:
+3. **Infrastructure**
+   - `MongoDbService`
+   - `MongoDbResiliencePolicy`
+   - `MongoDbStartupValidator`
+   - `PasswordHasher`
+   - `OrderConsumerHostedService`
 
-#### 1. Controllers
-- **CustomerController**: REST API endpoints for customer operations
+4. **Mappings**
+   - `MappingProfile` maps Customer, User, Role, Item, and Order between DTOs and Backend entities
 
-#### 2. Models
-- **Customer**: MongoDB entity with BSON attributes
-  - Fields: Id, Name, IsActive
-  - Mapped to/from CustomerDto using AutoMapper
+**MongoDB collections currently in use**:
+- `customers`
+- `users`
+- `roles`
+- `items`
+- `orders`
 
-#### 3. Repositories
-- **GenericRepository<T>**: Base repository with CRUD operations
-- **CustomerRepository**: Specialized customer repository
-
-#### 4. Services
-- **MongoDbService**: MongoDB database connection management
-- **MongoDbResiliencePolicy**: Resilience policies for MongoDB operations
-- **MongoDbStartupValidator**: Validates MongoDB connection at startup
-
-#### 5. Mappings
-- **MappingProfile**: AutoMapper profile for Customer ↔ CustomerDto
-
-**Project Structure**:
-```
-Backend/
-├── Controllers/
-│   └── CustomerController.cs
-├── Models/
-│   └── Customer.cs
-├── Repositories/
-│   ├── GenericRepository.cs
-│   └── CustomerRepository.cs
-├── Services/
-│   └── MongoDbService.cs
-├── Mappings/
-│   └── MappingProfile.cs
-├── Policies/
-│   └── MongoDbResiliencePolicy.cs
-├── Validators/
-│   └── MongoDbStartupValidator.cs
-├── Config/
-│   └── MongoDbSettings.cs
-└── Program.cs
-```
-
-**Dependencies**:
-- MongoDB.Driver
-- AutoMapper
-- Contracts (project reference)
-
-**Database**:
-- **Type**: MongoDB
-- **Connection**: `mongodb://localhost:27017`
-- **Database**: `TwoServicesDb`
-- **Collection**: `customers`
-
-**Features**:
-- ✅ Global exception handling middleware
-- ✅ CORS enabled (allow all origins)
-- ✅ AutoMapper for DTO/Entity mapping
-- ✅ Resilience policies for MongoDB operations
-- ✅ Startup validation for MongoDB connection
-- ✅ Structured logging
-
----
+**Startup behavior**:
+- binds `MongoDbSettings`
+- creates Mongo client and repository services
+- validates MongoDB connectivity on startup
+- binds `RabbitMqSettings`
+- starts `OrderConsumerHostedService`
 
 ### ServiceA
 
-**Purpose**: Gateway/proxy service that provides specialized customer operations by communicating with Backend.
+**Purpose**: gateway/auth/publisher service.
 
-**Location**: `./ServiceA/`
+**Current responsibilities**:
+- login and registration entry points for clients
+- JWT issuance after Backend credential validation
+- protected customer activation endpoint
+- order submission endpoint
+- pre-publish validation of customer and items through Backend APIs
+- RabbitMQ order publishing
+- proxy read endpoint for orders stored in Backend
 
-**Target Framework**: .NET 10.0
+**Key runtime pieces**:
 
-**Port Configuration**:
-- HTTP: `http://localhost:5234`
-- HTTPS: `https://localhost:7111`
+1. **Controllers**
+   - `AuthController`
+   - `CustomerController`
+   - `OrderController`
 
-**Responsibilities**:
-- Act as API gateway/proxy to Backend service
-- Provide specialized endpoints (e.g., update customer activation status)
-- Handle service-to-service communication
-- Implement HTTP client patterns
-- Swagger/OpenAPI documentation
+2. **Services**
+   - `JwtTokenService`
+   - `OrderPublisherService`
 
-**Key Components**:
+3. **Infrastructure**
+   - `IHttpClientFactory`
+   - JWT bearer authentication
+   - Swagger in development
 
-#### 1. Controllers
-- **CustomerController**: Proxy endpoints that call Backend API
-  - **UpdateCustomer**: Update customer activation status
+**Startup behavior**:
+- optionally overrides `JwtSettings:SecretKey` from `JWT_SECRET_KEY`
+- configures JWT authentication and authorization
+- binds `RabbitMqSettings`
+- registers `OrderPublisherService`
 
-#### 2. Communication Pattern
-- Uses `IHttpClientFactory` for HTTP client management
-- Reads Backend URL from configuration
-- Implements retry and error handling
-- Logs all service-to-service communication
+---
 
-**Project Structure**:
-```
-ServiceA/
-├── Controllers/
-│   └── CustomerController.cs
-├── Properties/
-│   └── launchSettings.json
-├── appsettings.json
-├── appsettings.Development.json
-├── ServiceA.http
-└── Program.cs
-```
+## Communication Flows
 
-**Dependencies**:
-- Microsoft.AspNetCore.OpenApi
-- Swashbuckle.AspNetCore (Swagger)
-- Contracts (project reference)
+### Synchronous HTTP flow
 
-**Configuration** (`appsettings.json`):
+The existing synchronous flow is still the main pattern for customer and auth operations.
+
+#### Customer activation flow
+
+1. Client calls `ServiceA` `PUT /api/customer/{id}?active={bool}`
+2. `ServiceA` reads the customer from `Backend`
+3. `ServiceA` updates `IsActive`
+4. `ServiceA` sends the full `CustomerDto` back to `Backend`
+5. `Backend` updates MongoDB
+
+#### Authentication flow
+
+1. Client calls `ServiceA` `/api/auth/register` or `/api/auth/login`
+2. `ServiceA` calls `Backend` auth endpoints over HTTP
+3. `Backend` stores users and validates credentials
+4. `ServiceA` creates the JWT token after successful validation
+
+### Asynchronous RabbitMQ flow
+
+The current RabbitMQ implementation is centered on orders.
+
+#### Queues
+
+- `order_queue` - main queue for incoming orders
+- `order_retry_queue` - delayed retry queue
+- `failed_orders` - terminal failure queue
+
+#### Publish flow
+
+1. Client sends `POST /api/order/publish` to `ServiceA`
+2. `ServiceA` validates:
+   - customer exists in Backend
+   - every item exists in Backend
+3. `ServiceA` serializes `OrderDto`
+4. `OrderPublisherService` declares the main and failed queues
+5. `ServiceA` publishes the message as **persistent** to `order_queue`
+6. Client receives `202 Accepted` with queued status information
+
+#### Consume flow
+
+1. `Backend` starts `OrderConsumerHostedService`
+2. Consumer connects to RabbitMQ and declares:
+   - `order_queue`
+   - `failed_orders`
+   - `order_retry_queue`
+3. Consumer subscribes to `order_queue` with **manual acknowledgements**
+4. For each message:
+   - deserialize `OrderDto`
+   - reject bad payloads by publishing failure details to `failed_orders`
+   - check whether the order already exists
+   - if duplicate, acknowledge and skip insert
+   - if new, map to `Backend.Models.Order` and save to MongoDB
+   - acknowledge only after processing completes for that delivery path
+
+#### Retry and failure handling
+
+- retry count is stored in RabbitMQ message headers as `x-retry-count`
+- retry messages are published to `order_retry_queue`
+- retry queue uses:
+  - `x-message-ttl`
+  - dead-letter back to `order_queue`
+- after the configured max retry count, the message is published to `failed_orders`
+- the failed payload includes:
+  - original message
+  - error text
+  - source queue
+  - retry count
+  - delivery tag
+  - failure timestamp
+
+#### Idempotency
+
+Duplicate delivery is treated as normal behavior.
+
+- the current unique processing key is `OrderDto.Id`
+- before insert, the consumer checks whether an order with that id already exists
+- if it exists, the message is acknowledged and no second document is written
+
+This is the current reliability protection that prevents duplicate order records on redelivery.
+
+---
+
+## Data and Messaging Models
+
+### Customer
+
+**Shared DTO**: `CustomerDto`
+- `Id`
+- `Name`
+- `IsActive`
+
+**Backend model**: `Customer`
+- stored in MongoDB with BSON attributes
+- default `IsActive = false`
+
+### User and Role
+
+**Backend user model**
+- `Id`
+- `Username`
+- `PasswordHash`
+- `Email`
+- `Roles`
+
+**Backend role model**
+- `Id`
+- `Type`
+
+Role enum values are intended to travel as strings.
+
+### Item
+
+**Shared DTO / Backend model**
+- `Id`
+- `Name`
+- `Quantity`
+
+### Order
+
+**Shared order message DTO**
+- `Id`
+- `CustomerName`
+- `Items`
+
+**Backend persisted order**
+- `Id`
+- `CustomerName`
+- `Items`
+
+At the moment the message contract is intentionally simple and is reused for both transport and readback.
+
+---
+
+## API Surface
+
+### Backend (`http://localhost:5148`)
+
+#### Customer
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/customer` | List customers |
+| GET | `/api/customer/{id}` | Get customer by id |
+| GET | `/api/customer/name/{name}` | Get customer by name |
+| POST | `/api/customer` | Create customer |
+| PUT | `/api/customer/{id}` | Update customer |
+| DELETE | `/api/customer?id={id}` | Delete customer |
+
+#### Auth
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/auth/register` | Create user in Backend |
+| POST | `/api/auth/validate` | Validate credentials for ServiceA login |
+
+#### Role
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/role/create` | Create a role such as `User` |
+
+#### Item
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/item/create` | Create an item |
+| GET | `/api/item/name/{name}` | Validate or fetch item by name |
+
+#### Order
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/order` | List persisted orders |
+| GET | `/api/order/{id}` | Get persisted order by id |
+
+### ServiceA (`http://localhost:5234`)
+
+#### Auth
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/auth/register` | Proxy registration to Backend |
+| POST | `/api/auth/login` | Validate through Backend and issue JWT |
+
+#### Customer
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| PUT | `/api/customer/{id}?active={bool}` | Protected activation update |
+
+#### Order
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/order/publish` | Validate and enqueue an order |
+| GET | `/api/order` | Proxy read of stored orders from Backend |
+
+**Swagger UI**: `http://localhost:5234/swagger`
+
+Backend Swagger is currently commented out in `Backend\Program.cs`.
+
+---
+
+## Configuration
+
+### Backend
+
+Important sections in `Backend\appsettings.json`:
+
 ```json
 {
-  "BackendApi": {
-	"BaseUrl": "http://localhost:5148"
+  "MongoDbSettings": {
+    "ConnectionString": "mongodb://localhost:27017",
+    "DatabaseName": "TwoServicesDb"
+  },
+  "RabbitMq": {
+    "HostName": "localhost",
+    "Port": 5672,
+    "ManagementUrl": "http://localhost:15672",
+    "UserName": "guest",
+    "Password": "guest",
+    "OrderQueue": "order_queue",
+    "FailedOrdersQueue": "failed_orders",
+    "RetryQueue": "order_retry_queue",
+    "RetryDelayMilliseconds": 5000,
+    "MaxRetryAttempts": 3
   }
 }
 ```
 
-**Features**:
-- ✅ HttpClient factory pattern
-- ✅ Swagger UI enabled (auto-launch on startup)
-- ✅ Global exception handling middleware
-- ✅ Configuration-based Backend URL
-- ✅ Comprehensive error handling
-- ✅ Structured logging
+### ServiceA
 
----
+Important sections in `ServiceA\appsettings.json`:
 
-## Communication Flow
-
-### Service-to-Service Communication
-
-#### Pattern: HTTP REST API
-
-ServiceA communicates with Backend using standard HTTP/REST patterns:
-
-1. **Client Request** → ServiceA
-2. **ServiceA** → Creates HttpClient via IHttpClientFactory
-3. **ServiceA** → Makes HTTP request to Backend
-4. **Backend** → Processes request and accesses MongoDB
-5. **Backend** → Returns response to ServiceA
-6. **ServiceA** → Transforms/forwards response to client
-
-### Example: Update Customer Activation Status
-
-```mermaid
-sequenceDiagram
-	participant Client
-	participant ServiceA
-	participant Backend
-	participant MongoDB
-
-	Client->>ServiceA: PUT /api/customer/{id}?active=false
-	ServiceA->>Backend: GET /api/customer/{id}
-	Backend->>MongoDB: Find customer by ID
-	MongoDB-->>Backend: Customer document
-	Backend-->>ServiceA: CustomerDto
-	ServiceA->>ServiceA: Update IsActive = false
-	ServiceA->>Backend: PUT /api/customer/{id} (CustomerDto)
-	Backend->>Backend: Map DTO to Entity
-	Backend->>MongoDB: Update customer
-	MongoDB-->>Backend: Success
-	Backend-->>ServiceA: 204 No Content
-	ServiceA-->>Client: 204 No Content
+```json
+{
+  "BackendApi": {
+    "BaseUrl": "http://localhost:5148"
+  },
+  "RabbitMq": {
+    "HostName": "localhost",
+    "Port": 5672,
+    "ManagementUrl": "http://localhost:15672",
+    "UserName": "guest",
+    "Password": "guest",
+    "OrderQueue": "order_queue",
+    "FailedOrdersQueue": "failed_orders",
+    "RetryQueue": "order_retry_queue",
+    "RetryDelayMilliseconds": 5000,
+    "MaxRetryAttempts": 3
+  },
+  "JwtSettings": {
+    "SecretKey": "placeholderforjwtsecretkey",
+    "Issuer": "ServiceA",
+    "Audience": "TwoServicesApp",
+    "ExpirationMinutes": 60
+  }
+}
 ```
 
-### Error Handling Flow
+### Local startup order
 
-Both services implement comprehensive error handling:
-
-1. **Try-Catch**: All external calls wrapped in try-catch
-2. **HTTP Status Codes**: Proper status codes returned (200, 204, 400, 404, 500)
-3. **Logging**: Errors logged with context
-4. **Client Response**: Meaningful error messages returned
-
----
-
-## Data Models
-
-### CustomerDto (Contracts)
-**Purpose**: Data transfer object for service communication
-
-| Property | Type | Description |
-|----------|------|-------------|
-| Id | string | Unique customer identifier |
-| Name | string | Customer name |
-| IsActive | bool | Customer activation status |
-
-### Customer (Backend Entity)
-**Purpose**: MongoDB entity with database-specific attributes
-
-| Property | Type | BSON Attribute | Description |
-|----------|------|----------------|-------------|
-| Id | string | _id | MongoDB document ID (GUID) |
-| Name | string | name | Customer name (required) |
-| IsActive | bool | active | Activation status (default: false) |
-
-**Mapping**: AutoMapper handles bidirectional mapping between Customer and CustomerDto
-
----
-
-## API Endpoints
-
-### Backend API (`http://localhost:5148`)
-
-#### Customer Endpoints
-
-| Method | Endpoint | Description | Request Body | Response |
-|--------|----------|-------------|--------------|----------|
-| GET | `/api/customer` | Get all customers | - | 200: List\<CustomerDto\> |
-| GET | `/api/customer/{id}` | Get customer by ID | - | 200: CustomerDto<br>404: Not Found |
-| POST | `/api/customer` | Create customer | CustomerDto | 200: CustomerDto |
-| PUT | `/api/customer/{id}` | Update customer | CustomerDto | 204: No Content<br>404: Not Found |
-| DELETE | `/api/customer/{id}` | Delete customer | - | 204: No Content<br>404: Not Found |
-
-### ServiceA API (`http://localhost:5234`)
-
-#### Customer Endpoints
-
-| Method | Endpoint | Description | Parameters | Response |
-|--------|----------|-------------|------------|----------|
-| PUT | `/api/customer/{id}?active={bool}` | Update customer activation status | id (route), active (query) | 204: No Content<br>404: Not Found |
-
-**Swagger UI**: `http://localhost:5234/swagger`
+1. Start MongoDB
+2. Start RabbitMQ
+3. Run Backend
+4. Run ServiceA
 
 ---
 
 ## Technology Stack
 
 ### Backend
-- **Framework**: ASP.NET Core 10.0
-- **Database**: MongoDB 
-- **ORM**: MongoDB.Driver
-- **Mapping**: AutoMapper
-- **Patterns**: Repository, Dependency Injection
-- **Resilience**: Custom resilience policies
+- ASP.NET Core Web API
+- MongoDB.Driver
+- AutoMapper
+- custom repository abstraction
+- hosted background service for RabbitMQ consumption
 
 ### ServiceA
-- **Framework**: ASP.NET Core 10.0
-- **HTTP Client**: IHttpClientFactory
-- **Documentation**: Swagger/OpenAPI (Swashbuckle)
-- **Patterns**: Gateway/Proxy, Dependency Injection
+- ASP.NET Core Web API
+- `IHttpClientFactory`
+- JWT bearer authentication
+- Swagger / Swashbuckle
+- RabbitMQ publisher service
 
-### Contracts
-- **Type**: .NET Standard Library (.NET 10.0)
-- **Purpose**: Shared DTOs
-
-### Common
-- **Language**: C# 10+
-- **Runtime**: .NET 10.0
-- **Logging**: Microsoft.Extensions.Logging
-- **Configuration**: appsettings.json
+### Shared
+- .NET 10
+- C#
+- Microsoft logging abstractions
+- JSON serialization with enum-string support
+- RabbitMQ.Client
 
 ---
 
-## Configuration
+## Known Development Notes
 
-### Backend Configuration
-
-**appsettings.json**:
-```json
-{
-  "MongoDbSettings": {
-	"ConnectionString": "mongodb://localhost:27017",
-	"DatabaseName": "TwoServicesDb"
-  }
-}
-```
-
-**Features Enabled**:
-- Global exception handling
-- CORS (allow all)
-- AutoMapper
-- MongoDB resilience policies
-- Startup validation
-
-### ServiceA Configuration
-
-**appsettings.json**:
-```json
-{
-  "BackendApi": {
-	"BaseUrl": "http://localhost:5148"
-  }
-}
-```
-
-**Features Enabled**:
-- HttpClient factory
-- Swagger UI (auto-launch)
-- Global exception handling
-- CORS enabled
-
-### Launch Settings
-
-#### Backend
-- Development profile: `http://localhost:5148`
-- Browser launch: Disabled
-
-#### ServiceA
-- Development profile: `http://localhost:5234`
-- Browser launch: Enabled (opens Swagger)
+- RabbitMQ support is implemented and no longer just planned.
+- The async demo is currently focused only on **orders**.
+- Order idempotency currently relies on `OrderDto.Id`; there is no separate message-id contract yet.
+- `ServiceA` customer endpoints are protected with JWT, but the order endpoints are currently separate from that protection.
+- Backend registration assumes a `User` role already exists in MongoDB. On a fresh database, create it first through `POST /api/role/create`.
+- There is currently no automated test project; manual verification is done through the `.http` files and ServiceA Swagger.
 
 ---
 
-## Design Decisions
-
-### Why ServiceA as a Gateway?
-- **Separation of Concerns**: Frontend services separated from data services
-- **Specialized Operations**: ServiceA can implement business logic without modifying Backend
-- **Scalability**: Services can be scaled independently
-- **Security**: Backend can be isolated from direct client access
-
-### Why Shared Contracts?
-- **Type Safety**: Compile-time verification of data structures
-- **Consistency**: Same DTOs used by all services
-- **Versioning**: Centralized contract management
-- **Decoupling**: Services depend on contracts, not each other
-
-### Why AutoMapper in Backend?
-- **Clean Separation**: DTOs vs. Database entities
-- **Maintainability**: Centralized mapping logic
-- **Flexibility**: Easy to add computed properties or transformations
-
-### Why MongoDB?
-- **Document Model**: Flexible schema for customer data
-- **NoSQL**: Suitable for microservices architecture
-- **Performance**: Fast read/write operations
-- **Scalability**: Easy horizontal scaling
-
----
-
-## Future Enhancements
-
-### Potential Improvements
-- [ ] Add authentication/authorization (JWT, OAuth)
-- [ ] Implement API versioning
-- [ ] Add health check endpoints
-- [ ] Implement distributed tracing (OpenTelemetry)
-- [ ] Add service discovery (Consul, Eureka)
-- [ ] Implement circuit breaker pattern in ServiceA
-- [ ] Add caching layer (Redis)
-- [ ] Containerize services (Docker)
-- [ ] Add comprehensive unit/integration tests
-- [ ] Implement message-based communication (RabbitMQ, Azure Service Bus)
-
-### Monitoring & Observability
-- Application Insights / Prometheus
-- Structured logging (Serilog)
-- Correlation IDs for request tracking
-- Performance metrics
-
----
-
-## Development Workflow
-
-### Running the Solution
-1. **Start MongoDB**: Ensure MongoDB is running on `localhost:27017`
-2. **Run Backend**: `cd Backend && dotnet run`
-3. **Run ServiceA**: `cd ServiceA && dotnet run`
-4. **Access Swagger**: Navigate to `http://localhost:5234/swagger`
-
-### Testing
-- Use `.http` files for manual API testing
-- Swagger UI for interactive testing
-- Browser for GET requests (ServiceA only)
-
-### Git Repository
-- **Branch**: `develop`
-- **Remote**: `https://github.com/etwas77/TwoServices`
-
----
-
-**Last Updated**: 2024
-**Version**: 1.0
-**Maintainer**: Development Team
+**Last Updated**: 2026-06-25
+**State**: Current implementation snapshot

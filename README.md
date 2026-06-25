@@ -22,4 +22,4 @@ project (.Net Web API and mongodb as database) will implement a simple microserv
 - RabbitMQ is used to swap objects between both microservices, retry policy, validation etc
 - swagger module or HTTP Request file (Backend.http, ServiceA.http) in projects for fast testing.
 
-under development, look into develop branch
+still under development, look into develop branch for more details

@@ -28,7 +28,7 @@ namespace ServiceA.Controllers
 
         // PUT: api/customer/{id}
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateCustomer(string id, [FromQuery] bool active)
+        public async Task<ActionResult> UpdateCustomer(string id, [FromQuery] bool active)
         {
             try
             {
@@ -65,7 +65,7 @@ namespace ServiceA.Controllers
 
                 if (putResponse.IsSuccessStatusCode)
                 {
-                    return NoContent();
+                    return Ok(new { Message = "Customer updated successfully", IsActive = active, Id = id });
                 }
 
                 if (putResponse.StatusCode == System.Net.HttpStatusCode.NotFound)
